@@ -118,7 +118,7 @@ gh secret list --repo OWNER/REPO
 터미널을 열고 아래 명령어 한 줄을 실행하면 7개의 스킬과 12개의 커맨드가 자동으로 설치됩니다.
 
 ```bash
-npx github:ischung/cc-sdlc
+npx github:ischung/cc-sdlc-v0
 ```
 
 명령어를 실행하면 다음과 같은 화면이 출력됩니다.
@@ -184,10 +184,10 @@ npx github:ischung/cc-sdlc
 ```bash
 # 프로젝트 폴더로 이동 후
 cd /your-project
-npx github:ischung/cc-sdlc --project
+npx github:ischung/cc-sdlc-v0 --project
 
 # 또는 경로를 명시
-npx github:ischung/cc-sdlc --project /your-project
+npx github:ischung/cc-sdlc-v0 --project /your-project
 ```
 
 설치 위치:
@@ -236,10 +236,10 @@ npx github:ischung/cc-sdlc-v0 --project
 
 ```bash
 # 전역 설치 현황
-npx github:ischung/cc-sdlc list
+npx github:ischung/cc-sdlc-v0 list
 
 # 프로젝트 스코프 설치 현황 (현재 디렉토리 기준)
-npx github:ischung/cc-sdlc list --project
+npx github:ischung/cc-sdlc-v0 list --project
 ```
 
 7개 스킬과 12개 커맨드 앞에 모두 ✔ 표시가 나오면 정상입니다.
@@ -582,7 +582,7 @@ flowchart LR
 ### 전역 제거
 
 ```bash
-npx github:ischung/cc-sdlc uninstall
+npx github:ischung/cc-sdlc-v0 uninstall
 ```
 
 실행하면 `~/.claude/skills/` 안의 7개 스킬 폴더와 `~/.claude/commands/` 안의 12개 커맨드 파일이 삭제됩니다.
@@ -607,10 +607,10 @@ npx github:ischung/cc-sdlc uninstall --project /your-project
 
 ```bash
 cd /your-project
-npx github:ischung/cc-sdlc uninstall --project
+npx github:ischung/cc-sdlc-v0 uninstall --project
 
 # 또는 경로 명시
-npx github:ischung/cc-sdlc uninstall --project /your-project
+npx github:ischung/cc-sdlc-v0 uninstall --project /your-project
 ```
 
 프로젝트 스코프 제거 시 `.claude/` 하위 빈 디렉토리도 자동으로 정리됩니다 (다른 스킬은 건드리지 않음).

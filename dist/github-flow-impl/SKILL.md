@@ -54,11 +54,10 @@ gh project list --owner OWNER --format json
 
 > **이 단계를 생략하면 PR 오픈/머지 후 칸반 카드가 자동으로 이동하지 않는다. 반드시 실행한다.**
 >
-> ℹ️ **GitHub App 설정은 자동화됨**: `APP_ID` 시크릿이 없으면 아래 스크립트가
-> 브라우저를 열고 입력을 안내한다. 사용자는 **앱 이름 입력 + Create 버튼 클릭 1회**만 하면 된다.
-> 이후 App ID 입력, .pem 경로 입력, 시크릿 등록, 앱 설치까지 자동 처리된다.
+> ℹ️ **KANBAN_TOKEN PAT 설정은 안내 기반 자동화**: `KANBAN_TOKEN` 시크릿이 없으면 아래 스크립트가
+> 토큰 발급 페이지를 열고 입력을 안내한다. 사용자는 **토큰 생성 + 복사·붙여넣기**만 하면 된다.
 
-마커 파일 `.github/.kanban-auto-done-configured`에 `v3` 버전이 없거나 구버전 워크플로우가 감지되면 아래 자동화를 설정한다.
+마커 파일 `.github/.kanban-auto-done-configured`에 `v5` 버전이 없거나 구버전 워크플로우가 감지되면 아래 자동화를 설정한다.
 
 > **핵심 원칙**: 워크플로우 파일은 **feature 브랜치가 아닌 main에 직접 커밋**해야 한다.
 > GitHub Actions는 base 브랜치(main)에 있는 워크플로우만 실행하기 때문에,
@@ -69,20 +68,21 @@ gh project list --owner OWNER --format json
 - `kanban-auto-review.yml` — PR 오픈 시 Review 이동
 - `kanban-auto-done.yml` — PR 머지 시 Done 이동
 
-> **실행 순서 중요**: 워크플로우 파일을 **먼저** 생성하고, GitHub App 설정은 **나중에** 한다.
+> **실행 순서 중요**: 워크플로우 파일을 **먼저** 생성하고, KANBAN_TOKEN 등록은 **나중에** 한다.
 > 파일 생성과 시크릿 등록은 독립적이다. 파일이 없으면 Actions 트리거 자체가 안 되지만,
-> 시크릿이 없어도 파일은 미리 생성해 둘 수 있다.
+> 시크릿이 없어도 파일은 미리 생성해 둘 수 있다 (runtime guard로 graceful skip).
 
 #### Part A — 워크플로우 파일 생성/갱신 (무조건 먼저 실행)
 
-아래 두 조건 중 하나라도 해당하면 워크플로우를 재생성한다:
-1. 마커 파일에 `v3` 버전 없음 (최초 설치 / 이전 버전)
-2. `_kanban-move.yml`에 `APP_ID` 없음 (KANBAN_TOKEN 방식 → GitHub App으로 강제 전환)
+아래 세 조건 중 하나라도 해당하면 워크플로우를 재생성한다:
+1. 마커 파일에 `v5` 버전 없음 (최초 설치 / 이전 버전)
+2. `_kanban-move.yml`에 `KANBAN_TOKEN` 없음 (GitHub App 방식 → PAT 방식으로 되돌림)
+3. `_kanban-move.yml`에 `Check secrets configured` step 없음 (runtime guard 미탑재)
 
 **감지 방법** — 아래 명령을 실행한다:
 
 ```bash
-(grep -q "^v3 " .github/.kanban-auto-done-configured 2>/dev/null && grep -q "APP_ID" .github/workflows/_kanban-move.yml 2>/dev/null) && echo "SKIP" || echo "NEED_SETUP"
+(grep -q "^v5 " .github/.kanban-auto-done-configured 2>/dev/null && grep -q "KANBAN_TOKEN" .github/workflows/_kanban-move.yml 2>/dev/null && grep -q "Check secrets configured" .github/workflows/_kanban-move.yml 2>/dev/null) && echo "SKIP" || echo "NEED_SETUP"
 ```
 
 결과가 **"SKIP"**이면 Part A를 건너뛰고 Part B로 진행한다.
@@ -119,30 +119,32 @@ on:
         required: true
         type: number
     secrets:
-      APP_ID:
-        required: true
-      APP_PRIVATE_KEY:
-        required: true
+      KANBAN_TOKEN:
+        required: false
 
 jobs:
   move:
     runs-on: ubuntu-latest
     steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - name: Check secrets configured
+        id: check
+        run: |
+          if [ -z "${{ secrets.KANBAN_TOKEN }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::notice::KANBAN_TOKEN 미등록 — 칸반 이동 스킵. Repo Settings → Secrets에서 등록하면 자동화가 활성화됩니다."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
 
       - name: Move linked issues to ${{ inputs.status }}
+        if: steps.check.outputs.configured == 'true'
         uses: actions/github-script@v7
         env:
           TARGET_STATUS: ${{ inputs.status }}
           PR_NUMBER: ${{ inputs.pr_number }}
           KANBAN_PROJECT_NUMBER: ${{ vars.KANBAN_PROJECT_NUMBER }}
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
+          github-token: ${{ secrets.KANBAN_TOKEN }}
           script: |
             const targetStatus = process.env.TARGET_STATUS;
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
@@ -270,10 +272,10 @@ jobs:
 **파일 4** — `.github/.kanban-auto-done-configured` 를 Write 도구로 생성한다:
 
 ```
-v3 configured (현재 UTC 시각)
+v5 configured (현재 UTC 시각)
 ```
 
-> `(현재 UTC 시각)` 대신 실제 시각을 넣는다. 예: `v3 configured 2026-04-16T12:00:00Z`
+> `(현재 UTC 시각)` 대신 실제 시각을 넣는다. 예: `v5 configured 2026-04-16T12:00:00Z`
 
 **파일 4개 생성 후**, main에 커밋하고 push한다:
 
@@ -291,94 +293,106 @@ git checkout -
 
 ---
 
-#### Part B — GitHub App 시크릿 등록 (APP_ID 없을 때만)
+#### Part B — KANBAN_TOKEN PAT 등록 (토큰 없을 때만)
 
-워크플로우 파일 생성 후, 아래 명령을 실행해 APP_ID 시크릿 등록 여부를 확인한다:
+워크플로우 파일 생성 후, 아래 명령을 실행해 KANBAN_TOKEN 시크릿 등록 여부를 확인한다:
 
 ```bash
-gh secret list --repo "$OWNER/$REPO" 2>/dev/null | grep -q "^APP_ID" && echo "EXISTS" || echo "MISSING"
+gh secret list --repo "$OWNER/$REPO" 2>/dev/null | grep -q "^KANBAN_TOKEN" && echo "EXISTS" || echo "MISSING"
 ```
 
-결과가 **"EXISTS"**이면 건너뛰고 Step 1로 진행한다.
+결과가 **"EXISTS"**이면 건너뛰고 Step 0.6으로 진행한다.
 결과가 **"MISSING"**이면 아래 절차를 사용자와 **대화하며** 수행한다.
 
 > **중요**: 이 절차는 bash 스크립트로 한 번에 실행하지 않는다.
 > 각 단계를 Claude가 사용자에게 안내하고, 사용자 입력을 받아서 처리한다.
 
-**1단계 — 앱 생성 안내**
+**1단계 — PAT 발급 페이지 열기**
 
-아래 명령으로 GitHub App 생성 페이지를 연다:
+아래 명령으로 GitHub PAT (classic) 발급 페이지를 연다:
 
 ```bash
-open "https://github.com/settings/apps/new"
+open "https://github.com/settings/tokens/new"
 ```
 
 > (Linux: `xdg-open`, Windows Git Bash: `start` 사용)
 
-사용자에게 아래 설정으로 앱을 생성하도록 안내하고, 완료 여부를 확인한다:
+사용자에게 아래 설정으로 토큰을 발급하도록 안내한다:
 
-- **App name**: 원하는 이름 (예: `REPO-kanban-bot`)
-- **Homepage URL**: `https://github.com/OWNER/REPO`
-- **Webhook**: Active 체크 **해제**
-- **Permissions**:
-  - Repository > Issues: **Read & Write**
-  - Repository > Pull requests: **Read-only**
-  - Account > Projects: **Read & Write**
-- **Where can this be installed**: Only on this account
+- **Note**: `kanban-automation` (식별용)
+- **Expiration**: 90 days 또는 No expiration (교육용이면 No expiration 권장)
+- **Select scopes** — 아래 4개 체크:
+  - ✅ `repo` (전체)
+  - ✅ `project`
+  - ✅ `read:org`
+  - ✅ `read:discussion`
 
-→ 사용자에게 "앱 생성을 완료하셨나요?" 확인 후 다음 단계 진행
+→ **Generate token** 버튼 클릭 후 표시되는 `ghp_...` 토큰 값을 복사.
 
-**2단계 — App ID 수집**
+**2단계 — 토큰 입력 받기**
 
 사용자에게 묻는다:
 
-> "앱 페이지 상단에 표시된 **App ID** 숫자를 알려주세요."
+> "발급받은 토큰(`ghp_...` 또는 `github_pat_...`)을 붙여넣어 주세요."
 
-사용자가 숫자를 입력하면 `_APP_ID_INPUT` 변수로 기억한다.
+사용자 입력을 `_PAT_INPUT` 변수로 기억한다.
 
-**3단계 — Private Key 수집**
-
-아래 명령으로 앱 목록 페이지를 연다:
+**3단계 — 시크릿 등록**
 
 ```bash
-open "https://github.com/settings/apps"
+gh secret set KANBAN_TOKEN --body "<_PAT_INPUT>" --repo "$OWNER/$REPO"
 ```
 
-사용자에게 안내한다:
+성공하면 사용자에게 "KANBAN_TOKEN 등록 완료"를 알린 후 Step 0.6으로 진행한다.
 
-> "해당 앱 → **Private keys** 섹션 → **Generate a private key** 클릭 → .pem 파일이 다운로드됩니다.
-> 다운로드된 **.pem 파일의 전체 경로**를 알려주세요. (예: `/Users/yourname/Downloads/app-name.pem`)"
+---
 
-경로를 받으면 파일 존재 여부를 확인한다:
+### Step 0.6 — 칸반 자동화 사전 점검 (preflight)
+
+Part A/B 완료 후, 칸반 자동화가 실제로 동작 가능한 상태인지 **자동으로 검증**한다.
+아래 bash 블록을 **한 번** 실행하여 2가지를 한꺼번에 확인한다.
 
 ```bash
-ls -la "<입력받은 경로>"
+set +e
+OWNER=$(gh repo view --json owner -q .owner.login 2>/dev/null)
+REPO=$(gh repo view --json name -q .name 2>/dev/null)
+
+echo "=== 칸반 자동화 사전 점검 ($OWNER/$REPO) ==="
+
+# [1/2] KANBAN_TOKEN 시크릿 등록 여부
+SECRETS=$(gh secret list --repo "$OWNER/$REPO" --json name -q '.[].name' 2>/dev/null)
+if echo "$SECRETS" | grep -qx "KANBAN_TOKEN"; then
+  SECRETS_OK=1
+  echo "✅ [1/2] KANBAN_TOKEN 등록됨"
+else
+  SECRETS_OK=0
+  echo "❌ [1/2] KANBAN_TOKEN 누락 — Part B 재실행 필요"
+fi
+
+# [2/2] 워크플로우 파일이 원격 main 브랜치에 존재하는가
+if git ls-tree -r origin/main --name-only 2>/dev/null | grep -qx ".github/workflows/_kanban-move.yml"; then
+  WORKFLOW_OK=1
+  echo "✅ [2/2] _kanban-move.yml이 origin/main에 존재"
+else
+  WORKFLOW_OK=0
+  echo "❌ [2/2] origin/main에 워크플로우 없음 — Part A 재실행 필요"
+fi
+
+echo ""
+if [ "$SECRETS_OK" = "1" ] && [ "$WORKFLOW_OK" = "1" ]; then
+  echo "✅ 칸반 자동화 준비 완료 — PR 오픈/머지 시 Review/Done 자동 이동 가능"
+else
+  echo "⚠️  위 실패 항목을 해결하지 않으면 자동화가 동작하지 않습니다."
+fi
+set -e
 ```
 
-파일이 없으면 사용자에게 재입력을 요청한다. 파일이 있으면 `_PEM_PATH` 변수로 기억한다.
+**판정 기준**:
+- 모두 ✅ → Step 1로 진행
+- `[1/2]` 실패 → Part B를 다시 실행 (PAT 발급 + 등록)
+- `[2/2]` 실패 → Part A를 다시 실행 (main 브랜치에 미푸시 가능성)
 
-**4단계 — 시크릿 등록**
-
-수집한 값으로 시크릿을 등록한다:
-
-```bash
-gh secret set APP_ID --body "<_APP_ID_INPUT>" --repo "$OWNER/$REPO"
-gh secret set APP_PRIVATE_KEY < "<_PEM_PATH>" --repo "$OWNER/$REPO"
-```
-
-성공하면 사용자에게 "APP_ID, APP_PRIVATE_KEY 등록 완료"를 알린다.
-
-**5단계 — App 설치**
-
-```bash
-open "https://github.com/settings/apps"
-```
-
-사용자에게 안내한다:
-
-> "해당 앱 → **Install App** 탭 → **Install** 버튼 → 대상 저장소($REPO) 선택"
-
-→ 사용자에게 "설치를 완료하셨나요?" 확인 후 Step 1로 진행
+하나라도 실패 상태로 Step 1에 진입하지 않는다. 사용자에게 "점검 실패 — 해결 후 재시도 필요" 메시지를 출력하고 중단한다.
 
 ---
 

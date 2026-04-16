@@ -1,6 +1,6 @@
 # cc-sdlc — 소프트웨어 개발 자동화 Claude Code 스킬 패키지
 
-소프트웨어 개발 전체 라이프사이클(기획 → 설계 → 이슈 관리 → 구현 → CI/CD)을 자동화하는 **Claude Code 커스텀 스킬** 6종 패키지입니다.
+소프트웨어 개발 전체 라이프사이클(기획 → 설계 → 이슈 관리 → 구현 → CI/CD)을 자동화하는 **Claude Code 커스텀 스킬** 7종 패키지입니다.
 
 > **cc-sdlc** = Claude Code + Software Development Life Cycle
 
@@ -8,13 +8,13 @@
 
 ## 목차
 
-1. [사전 준비](#1-사전-준비)
+1. [사전 준비](#1-사전-준비) (Node.js · Claude Code · gh CLI · **KANBAN_TOKEN**)
 2. [설치](#2-설치)
 3. [설치 확인](#3-설치-확인)
 4. [사용 방법](#4-사용-방법)
 5. [전체 워크플로우 예시](#5-전체-워크플로우-예시)
 6. [제거](#6-제거)
-7. [포함된 스킬](#포함된-스킬-6종)
+7. [포함된 스킬](#포함된-스킬-7종)
 8. [지원 도구 로드맵](#지원-도구-로드맵)
 
 ---
@@ -58,9 +58,64 @@ gh auth login
 
 ---
 
+### GitHub PAT(`KANBAN_TOKEN`) 발급 — 칸반 자동화에 필수
+
+`/implement` 실행 후 PR을 열거나 머지하면 칸반 이슈가 자동으로 Review/Done 컬럼으로 이동합니다. 이 자동화가 동작하려면 **`KANBAN_TOKEN`이라는 이름의 PAT**를 **작업 대상 저장소의 Secret**으로 등록해야 합니다.
+
+> GitHub Actions가 기본 제공하는 `GITHUB_TOKEN`은 Projects V2에 접근할 수 없기 때문에 별도 PAT가 필요합니다.
+
+#### 1단계 — PAT 발급
+
+1. 브라우저에서 👉 **https://github.com/settings/tokens/new** 접속 (GitHub 로그인 상태)
+2. 아래 값으로 입력:
+   - **Note**: `kanban-automation` (식별용 이름)
+   - **Expiration**: `No expiration` (교육용) 또는 90 days
+   - **Select scopes** — 아래 **4개 체크**:
+     - ☑ `repo` (전체)
+     - ☑ `project`
+     - ☑ `read:org` (admin:org 하위)
+     - ☑ `read:discussion`
+3. 페이지 하단 초록 **Generate token** 버튼 클릭
+4. 표시된 `ghp_xxxxxxxxx...` 값을 **즉시 복사** (한 번만 보입니다)
+
+> ⚠️ **4가지 스코프 중 하나라도 누락되면 Actions 실행 시 오류가 납니다.**
+> - `project` 누락 → `Resource not accessible by integration`
+> - `read:org` 누락 → `missing required scopes [read:org]`
+
+#### 2단계 — 저장소 Secret 등록 (**웹 UI 방식**, 권장)
+
+1. 작업 대상 저장소로 이동 → 상단 **Settings** 탭 클릭
+2. 좌측 사이드바에서 **Secrets and variables** → **Actions** 진입
+   또는 직접 URL: `https://github.com/OWNER/REPO/settings/secrets/actions`
+3. 초록 **New repository secret** 버튼 클릭
+4. 입력:
+   - **Name**: `KANBAN_TOKEN` ← **대소문자·철자 정확히**
+   - **Secret**: 1단계에서 복사한 `ghp_...` 값을 붙여넣기
+5. **Add secret** 클릭
+
+등록 후 **Repository secrets** 목록에 `KANBAN_TOKEN`이 표시되면 성공입니다.
+
+#### 2단계 (대체) — CLI 방식
+
+```bash
+gh secret set KANBAN_TOKEN --repo OWNER/REPO
+# 프롬프트에 PAT 붙여넣기
+```
+
+#### 3단계 — 등록 확인
+
+```bash
+gh secret list --repo OWNER/REPO
+# 출력에 "KANBAN_TOKEN    (등록일시)" 가 보이면 OK
+```
+
+> 💡 **토큰이 미등록이어도 PR 체크는 빨간 X로 실패하지 않습니다.** 워크플로우는 "KANBAN_TOKEN 미등록 — 칸반 이동 스킵" 알림만 남기고 성공으로 끝납니다. 토큰을 등록하는 순간부터 자동화가 작동합니다 *(graceful degradation 패턴)*.
+
+---
+
 ## 2. 설치
 
-터미널을 열고 아래 명령어 한 줄을 실행하면 6개의 스킬과 10개의 커맨드가 자동으로 설치됩니다.
+터미널을 열고 아래 명령어 한 줄을 실행하면 7개의 스킬과 12개의 커맨드가 자동으로 설치됩니다.
 
 ```bash
 npx github:ischung/cc-sdlc
@@ -88,8 +143,8 @@ npx github:ischung/cc-sdlc
 
 [설치 완료]
 
-  → 스킬:    6개  →  ~/.claude/skills
-  → 커맨드:  10개  →  ~/.claude/commands
+  → 스킬:    7개  →  ~/.claude/skills
+  → 커맨드:  12개  →  ~/.claude/commands
 
   Claude Code를 재시작하면 모든 스킬이 활성화됩니다.
 ```
@@ -122,6 +177,57 @@ npx github:ischung/cc-sdlc
     └── impl.md
 ```
 
+### 프로젝트 스코프 설치 (특정 프로젝트에서만 사용)
+
+전역(`~/.claude/`) 대신 **프로젝트 폴더 내 `.claude/`** 에 설치하면 해당 프로젝트에서만 스킬이 활성화됩니다. 팀원이 없는 다른 프로젝트에 영향을 주지 않고, 스킬 버전을 프로젝트별로 고정하고 싶을 때 유용합니다.
+
+```bash
+# 프로젝트 폴더로 이동 후
+cd /your-project
+npx github:ischung/cc-sdlc --project
+
+# 또는 경로를 명시
+npx github:ischung/cc-sdlc --project /your-project
+```
+
+설치 위치:
+
+```
+/your-project/.claude/
+├── skills/
+│   ├── github-kanban/SKILL.md
+│   ├── write-prd/SKILL.md
+│   ├── write-techspec/SKILL.md
+│   ├── ci-cd-pipeline/SKILL.md
+│   ├── tdd/SKILL.md
+│   └── github-flow-impl/SKILL.md
+└── commands/
+    └── (10개 커맨드)
+```
+
+> 프로젝트 스코프는 `.claude/` 디렉토리를 해당 프로젝트의 Git에 커밋하면 팀 전체가 동일한 스킬 버전을 공유할 수 있습니다.
+
+### 로컬 소스에서 직접 설치 (개발/기여자용)
+
+이 저장소를 직접 클론하여 수정한 뒤 설치할 수 있습니다.
+
+```bash
+# 1. 저장소 클론
+git clone https://github.com/ischung/cc-sdlc.git
+cd cc-sdlc
+
+# 2-A. 전역 설치 (~/.claude/)
+npx github:ischung/cc-sdlc
+
+# 2-B. 특정 프로젝트에만 설치
+npx github:ischung/cc-sdlc --project /your-project
+
+# 2-C. cc-sdlc 폴더 자체에 설치 (현재 디렉토리)
+npx github:ischung/cc-sdlc --project
+```
+
+스킬 파일을 수정한 뒤 재설치할 때도 동일한 명령을 반복 실행하면 됩니다 (덮어쓰기).
+
 ---
 
 ## 3. 설치 확인
@@ -129,14 +235,21 @@ npx github:ischung/cc-sdlc
 설치가 제대로 되었는지 확인하려면 다음 명령어를 실행합니다.
 
 ```bash
+# 전역 설치 현황
 npx github:ischung/cc-sdlc list
+
+# 프로젝트 스코프 설치 현황 (현재 디렉토리 기준)
+npx github:ischung/cc-sdlc list --project
 ```
 
-6개 스킬과 10개 커맨드 앞에 모두 ✔ 표시가 나오면 정상입니다.
+7개 스킬과 12개 커맨드 앞에 모두 ✔ 표시가 나오면 정상입니다.
 
 ```
 [설치 현황]
 
+  ✔  스킬: auto-ship
+       ✔  /ship
+       ✔  /ship-all
   ✔  스킬: ci-cd-pipeline
        ✔  /cicd-pipeline
   ✔  스킬: github-flow-impl
@@ -161,6 +274,29 @@ npx github:ischung/cc-sdlc list
 
 Claude Code를 열고 작업 중인 프로젝트 폴더에서 아래 커맨드를 사용합니다.  
 슬래시 커맨드(`/커맨드명`) 또는 자연어로 입력하면 스킬이 자동으로 실행됩니다.
+
+---
+
+### 권장 실행 순서 (SDLC 흐름)
+
+프로젝트 초기부터 운영까지 아래 순서로 실행하면 품질 게이트가 자연스럽게 먼저 서게 됩니다.
+
+```mermaid
+flowchart LR
+    A[/write-prd<br/>기획] --> B[/write-techspec<br/>설계]
+    B --> C[/generate-issues<br/>기능 이슈]
+    C --> D[/kanban-create<br/>/kanban-add-issues]
+    D --> E[/cicd-pipeline<br/>CI/CD 이슈 7개]
+    E --> F1[/implement L0-L1<br/>CI Gate 우선]
+    F1 --> F2[/implement 기능 이슈<br/>+ /tdd]
+    F2 --> G[/implement L2-L3<br/>CD 확장]
+```
+
+**`/cicd-pipeline`은 Kanban 생성 직후, 첫 `/implement` 전에 실행**하는 것을 권장합니다. 이유:
+
+- **Shift Left**: CI가 첫 PR부터 회귀를 막음
+- **TDD 강화**: `/tdd`의 Green 단계를 CI가 자동 검증
+- **레벨별 병렬 구현**: 생성되는 이슈는 DAG 레벨로 묶여 발행되어, 같은 레벨(`[L1]`, `[L2]`, `[L3]`) 이슈는 서로 독립적으로 동시에 구현할 수 있습니다. 두 명 이상의 학생이 한 팀에서 병렬로 작업하기 좋은 구조입니다.
 
 ---
 
@@ -295,15 +431,19 @@ CI/CD 파이프라인 구축해줘
 GitHub Actions 설정해줘
 ```
 
-생성되는 이슈 목록:
+생성되는 이슈 목록 (DAG 레벨별 병렬 그룹):
 
-1. 기존 워크플로우 정리
-2. CI — Static Analysis & Security Scan
-3. CI — Unit/Integration Test (CI Gate)
-4. CD — Docker Build & Push
-5. CD — Container Security Scan
-6. CD — Staging 배포 & E2E Test
-7. CD — GitHub Pages 배포 & Smoke Test
+| 레벨 | 이슈 | 병렬 여부 |
+|------|------|-----------|
+| L0 | 기존 워크플로우 정리 | 단독 |
+| L1 | CI — Static Analysis & Security Scan | **L1 내 병렬** |
+| L1 | CI — Unit/Integration Test (CI Gate) | **L1 내 병렬** |
+| L2 | CD — Docker Build & Push | **L2 내 병렬** |
+| L2 | CD — GitHub Pages 배포 & Smoke Test | **L2 내 병렬** |
+| L3 | CD — Container Security Scan | **L3 내 병렬** |
+| L3 | CD — Staging 배포 & E2E Test | **L3 내 병렬** |
+
+동일 레벨의 이슈는 서로 의존하지 않아 **별도 브랜치로 동시에 구현**할 수 있습니다. 이슈 제목 접두어 `[L<n>]`이 레벨을 나타냅니다.
 
 ---
 
@@ -348,7 +488,57 @@ TDD로 구현해줘
 - `gh` CLI 2.x 이상이 설치되어 있어야 합니다.
 - `jq`가 설치되어 있어야 합니다. (`brew install jq`)
 - GitHub 인증 스코프: `repo`, `read:org`, `read:discussion`, `project`
-- `KANBAN_TOKEN` PAT를 GitHub Actions Secret으로 등록해야 합니다.
+- `KANBAN_TOKEN` PAT를 GitHub Actions Secret으로 등록 → [§1 사전 준비 - PAT 발급](#github-patkanban_token-발급--칸반-자동화에-필수) 참조
+
+---
+
+### `/ship` — 이슈 구현 + CI/CD 통과 자동화
+
+칸반 보드의 Todo 이슈를 선택하여 구현하고, **CI/CD 파이프라인이 통과할 때까지 자동으로 처리**합니다. CI/CD 실패 시 실패 로그를 분석하여 자동 수정 후 재시도합니다. (최대 3회)
+
+```
+/ship           # Todo 최상단 이슈 자동 선택
+/ship #42       # 이슈 번호 직접 지정
+```
+
+**`/implement`와의 차이:**
+
+| 기능 | `/implement` | `/ship` |
+|------|:-----------:|:-------:|
+| 브랜치 생성 | ✅ | ✅ |
+| 코드 구현 | ✅ | ✅ |
+| 로컬 테스트 | ✅ | ✅ |
+| PR 생성 | ✅ | ✅ |
+| CI/CD 모니터링 | ❌ | ✅ |
+| 실패 자동 수정 | ❌ | ✅ (최대 3회) |
+| 실패 로그 분석 | ❌ | ✅ |
+
+---
+
+### `/ship-all` — Todo 이슈 전체 일괄 자동화
+
+Todo 컬럼의 모든 이슈를 **DAG 레벨 순서**(`[L0]` → `[L1]` → `[L2]` → `[L3]` → 기능 이슈)에 따라 순차 처리합니다. 각 이슈마다 `/ship` 로직을 실행하므로 CI/CD 피드백 루프가 포함됩니다.
+
+```
+/ship-all               # Todo 이슈 전체 처리
+/ship-all --skip #7     # 이슈 #7을 건너뛰고 처리
+```
+
+처리 순서 예시:
+
+```
+레벨 0: [L0][CI/CD] 기존 워크플로우 정리
+레벨 1: [L1][CI] Static Analysis  +  [L1][CI] Unit Test (순차)
+레벨 2: [L2][CD] Docker Build     +  [L2][CD] GitHub Pages (순차)
+레벨 99: 로그인 구현, 회원가입 API, ... (기능 이슈들)
+```
+
+처리 중 특정 이슈에서 3회 초과 실패 시 해당 이슈를 건너뛰고 나머지 이슈를 계속 처리합니다.
+
+**전제 조건:**
+
+- `/implement`와 동일 + CI/CD 파이프라인이 구성된 저장소 권장
+- CI/CD 없는 저장소에서도 동작합니다 (CI/CD 모니터링 단계 자동 스킵)
 
 ---
 
@@ -362,10 +552,10 @@ flowchart LR
     B -->|/write-techspec| C[TechSpec + 아키텍처]
     C -->|/generate-issues| D[GitHub 이슈]
     D -->|/kanban-create| E[칸반 보드]
-    E -->|/implement| F[코드 구현]
-    F -->|/tdd| G[TDD 검증]
-    C -->|/cicd-pipeline| H[CI/CD 파이프라인]
-    G --> H
+    C -->|/cicd-pipeline| F[CI/CD 파이프라인 이슈]
+    E --> F
+    F -->|/ship-all| G[구현 + CI/CD 통과]
+    G --> H[PR 리뷰 후 배포 완료]
 ```
 
 **단계별 실행 순서:**
@@ -377,8 +567,10 @@ flowchart LR
 4단계: /kanban-create      → 칸반 보드 생성
 5단계: /kanban-add-issues  → 이슈를 보드에 배치
 6단계: /cicd-pipeline      → CI/CD 파이프라인 이슈 생성
-7단계: /implement          → 이슈 하나씩 자동 구현 (반복)
-       /tdd                → 각 기능을 TDD로 검증 (반복)
+7단계: /ship-all           → Todo 이슈 전체 자동 구현 + CI/CD 통과까지 처리
+       /ship               → 이슈 하나씩 처리 (CI/CD 피드백 루프 포함)
+       /implement          → CI/CD 모니터링 없이 PR 생성까지만 처리
+       /tdd                → 각 기능을 TDD로 검증 (ship 내부에서도 활용)
 ```
 
 ---
@@ -387,11 +579,27 @@ flowchart LR
 
 설치된 모든 스킬과 커맨드를 제거하려면 다음 명령어를 실행합니다.
 
+### 전역 제거
+
 ```bash
 npx github:ischung/cc-sdlc uninstall
 ```
 
-실행하면 `~/.claude/skills/` 안의 6개 스킬 폴더와 `~/.claude/commands/` 안의 10개 커맨드 파일이 삭제됩니다.
+실행하면 `~/.claude/skills/` 안의 7개 스킬 폴더와 `~/.claude/commands/` 안의 12개 커맨드 파일이 삭제됩니다.
+
+### 프로젝트 스코프 제거
+
+프로젝트 내 `.claude/` 디렉토리에 설치했던 스킬만 제거하려면:
+
+```bash
+cd /your-project
+npx github:ischung/cc-sdlc uninstall --project
+
+# 또는 경로 명시
+npx github:ischung/cc-sdlc uninstall --project /your-project
+```
+
+프로젝트 스코프 제거 시 `.claude/` 하위 빈 디렉토리도 자동으로 정리됩니다 (다른 스킬은 건드리지 않음).
 
 ```
 [제거 시작]
@@ -405,14 +613,14 @@ npx github:ischung/cc-sdlc uninstall
 
 [제거 완료]
 
-  → 6개 스킬이 제거되었습니다.
+  → 7개 스킬이 제거되었습니다.
 ```
 
 제거 후 **Claude Code를 재시작**하면 스킬이 비활성화됩니다.
 
 ---
 
-## 포함된 스킬 (6종)
+## 포함된 스킬 (7종)
 
 | 스킬 | 커맨드 | 설명 |
 |------|--------|------|
@@ -422,6 +630,7 @@ npx github:ischung/cc-sdlc uninstall
 | **ci-cd-pipeline** | `/cicd-pipeline` | GitHub Actions CI/CD 파이프라인 이슈 자동 생성 |
 | **tdd** | `/tdd` | TDD(Red→Green→Refactor) 워크플로우 페어 프로그래밍 |
 | **github-flow-impl** | `/implement` `/impl` | 칸반 보드 이슈 자동 선택 → GitHub Flow 구현 |
+| **auto-ship** | `/ship` `/ship-all` | 이슈 구현 + CI/CD 파이프라인 통과까지 end-to-end 자동화 |
 
 ---
 

@@ -213,17 +213,17 @@ npx github:ischung/cc-sdlc --project /your-project
 
 ```bash
 # 1. 저장소 클론
-git clone https://github.com/ischung/cc-sdlc.git
-cd cc-sdlc
+git clone https://github.com/ischung/cc-sdlc-v0.git
+cd cc-sdlc-v0
 
 # 2-A. 전역 설치 (~/.claude/)
-npx github:ischung/cc-sdlc
+npx github:ischung/cc-sdlc-v0
 
 # 2-B. 특정 프로젝트에만 설치
-npx github:ischung/cc-sdlc --project /your-project
+npx github:ischung/cc-sdlc-v0 --project /your-project
 
-# 2-C. cc-sdlc 폴더 자체에 설치 (현재 디렉토리)
-npx github:ischung/cc-sdlc --project
+# 2-C. cc-sdlc-v0 폴더 자체에 설치 (현재 디렉토리)
+npx github:ischung/cc-sdlc-v0 --project
 ```
 
 스킬 파일을 수정한 뒤 재설치할 때도 동일한 명령을 반복 실행하면 됩니다 (덮어쓰기).
@@ -586,6 +586,20 @@ npx github:ischung/cc-sdlc uninstall
 ```
 
 실행하면 `~/.claude/skills/` 안의 7개 스킬 폴더와 `~/.claude/commands/` 안의 12개 커맨드 파일이 삭제됩니다.
+
+### 프로젝트 스코프 제거
+
+프로젝트 내 `.claude/` 디렉토리에 설치했던 스킬만 제거하려면:
+
+```bash
+cd /your-project
+npx github:ischung/cc-sdlc uninstall --project
+
+# 또는 경로 명시
+npx github:ischung/cc-sdlc uninstall --project /your-project
+```
+
+프로젝트 스코프 제거 시 `.claude/` 하위 빈 디렉토리도 자동으로 정리됩니다 (다른 스킬은 건드리지 않음).
 
 ### 프로젝트 스코프 제거
 

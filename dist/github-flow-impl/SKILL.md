@@ -79,25 +79,32 @@ gh project list --owner OWNER --format json
 1. 마커 파일에 `v3` 버전 없음 (최초 설치 / 이전 버전)
 2. `_kanban-move.yml`에 `APP_ID` 없음 (KANBAN_TOKEN 방식 → GitHub App으로 강제 전환)
 
+**감지 방법** — 아래 명령을 실행한다:
+
 ```bash
-# 버전 업 시 v3 → v4로 바꾸면 기존 배포 전체가 다음 /implement 실행 때 자동 갱신된다.
-if ! grep -q "^v3 " .github/.kanban-auto-done-configured 2>/dev/null || \
-   ! grep -q "APP_ID" .github/workflows/_kanban-move.yml 2>/dev/null; then
-  echo "🔧 칸반 자동화 설정 중 (신규 또는 구버전 업그레이드)..."
+(grep -q "^v3 " .github/.kanban-auto-done-configured 2>/dev/null && grep -q "APP_ID" .github/workflows/_kanban-move.yml 2>/dev/null) && echo "SKIP" || echo "NEED_SETUP"
+```
 
-  mkdir -p .github/workflows
+결과가 **"SKIP"**이면 Part A를 건너뛰고 Part B로 진행한다.
+결과가 **"NEED_SETUP"**이면 아래 절차를 **반드시** 실행한다.
 
-  # ── 1) 공통 reusable workflow ──────────────────────────────────────
-  cat > .github/workflows/_kanban-move.yml << 'GHACTIONS'
-# 재사용 가능한 공통 워크플로우 — 칸반 이슈 상태 이동 (GitHub App 방식)
-#
-# 필수 사전 설정 (저장소 Secrets):
-#   APP_ID          — GitHub App의 App ID 숫자값
-#   APP_PRIVATE_KEY — GitHub App의 Private Key (.pem 파일 전체 내용)
-#
-# [보안] PR 본문을 workflow input으로 전달하지 않고 API로 직접 조회합니다.
-#   pr_number(숫자)만 전달하고 본문은 Node.js(actions/github-script)로
-#   REST API를 통해 안전하게 문자열로 읽습니다. (expression injection 방지)
+> **중요 — bash heredoc을 사용하지 않는다.**
+> 아래 파일들을 Claude의 **Write 도구**로 직접 생성한다.
+> 각 파일의 내용을 그대로 복사하여 Write 도구에 전달한다.
+> `${{` 로 시작하는 GitHub Actions 표현식은 쉘 변수가 아니므로 **그대로** 유지한다.
+
+**현재 브랜치가 main인지 확인한다** (워크플로우는 main에만 있어야 한다):
+
+```bash
+git checkout main
+```
+
+**파일 1** — `.github/workflows/_kanban-move.yml` 을 Write 도구로 생성한다.
+내용은 아래와 **정확히 동일**하게 작성한다:
+
+<details><summary>_kanban-move.yml 전체 내용 (접어둠 — Write 도구에 이 내용을 전달)</summary>
+
+```yaml
 name: Kanban — Move Issue Status (Reusable)
 
 on:
@@ -142,11 +149,9 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // 1. PR 본문을 REST API로 안전하게 조회 (expression injection 없음)
             const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
             const prBody = pr.body || '';
 
-            // 2. PR 본문에서 이슈 번호 추출 (closes/fixes/resolves #N)
             const issueNumbers = [...prBody.matchAll(/(closes?|fixes?|resolves?)\s+#(\d+)/gi)]
               .map(m => parseInt(m[2], 10));
 
@@ -156,7 +161,6 @@ jobs:
             }
             core.info(`추출된 이슈 번호: ${issueNumbers.join(', ')}`);
 
-            // 3. 프로젝트 번호 결정
             let projectNumber = parseInt(process.env.KANBAN_PROJECT_NUMBER || '0', 10);
             if (!projectNumber) {
               const projectData = await github.graphql(`
@@ -171,7 +175,6 @@ jobs:
             if (!projectNumber) { core.setFailed('프로젝트 번호를 찾을 수 없습니다.'); return; }
             core.info(`PROJECT_NUMBER=${projectNumber}`);
 
-            // 4. 프로젝트 ID 및 Status 필드 조회
             const fieldData = await github.graphql(`
               query($owner: String!, $num: Int!) {
                 repositoryOwner(login: $owner) {
@@ -191,9 +194,7 @@ jobs:
             const targetOption = statusField.options.find(o => o.name === targetStatus);
             if (!targetOption) { core.setFailed(`'${targetStatus}' 옵션을 찾을 수 없습니다.`); return; }
             const targetOptionId = targetOption.id;
-            core.info(`STATUS_FIELD_ID=${statusFieldId}, TARGET_OPTION_ID=${targetOptionId}`);
 
-            // 5. 각 이슈를 대상 상태로 이동
             for (const issueNum of issueNumbers) {
               core.info(`이슈 #${issueNum} → ${targetStatus} 이동 중...`);
 
@@ -222,12 +223,15 @@ jobs:
                   }) { projectV2Item { id } }
                 }`, { projectId, itemId: item.id, fieldId: statusFieldId, optionId: targetOptionId });
 
-              core.info(`✅ 이슈 #${issueNum} ${targetStatus} 이동 완료`);
+              core.info(`이슈 #${issueNum} ${targetStatus} 이동 완료`);
             }
-GHACTIONS
+```
 
-  # ── 2) PR 오픈 → Review 이동 ──────────────────────────────────────
-  cat > .github/workflows/kanban-auto-review.yml << 'GHACTIONS'
+</details>
+
+**파일 2** — `.github/workflows/kanban-auto-review.yml` 을 Write 도구로 생성한다:
+
+```yaml
 name: Kanban — Move to Review on PR Open
 
 on:
@@ -242,10 +246,11 @@ jobs:
       status: Review
       pr_number: ${{ github.event.pull_request.number }}
     secrets: inherit
-GHACTIONS
+```
 
-  # ── 3) PR 머지 → Done 이동 ────────────────────────────────────────
-  cat > .github/workflows/kanban-auto-done.yml << 'GHACTIONS'
+**파일 3** — `.github/workflows/kanban-auto-done.yml` 을 Write 도구로 생성한다:
+
+```yaml
 name: Kanban — Move to Done on PR Merge
 
 on:
@@ -260,27 +265,28 @@ jobs:
       status: Done
       pr_number: ${{ github.event.pull_request.number }}
     secrets: inherit
-GHACTIONS
+```
 
-  # ── 마커 파일 생성 (버전 포함 — 다음 버전 업 시 v3 → v4로만 바꾸면 됨) ──
-  echo "v3 configured $(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/.kanban-auto-done-configured
+**파일 4** — `.github/.kanban-auto-done-configured` 를 Write 도구로 생성한다:
 
-  # ── main에 직접 커밋 & 푸시 (feature 브랜치 생성 전에 반드시 실행) ──
-  git add .github/workflows/_kanban-move.yml \
-          .github/workflows/kanban-auto-review.yml \
-          .github/workflows/kanban-auto-done.yml \
-          .github/.kanban-auto-done-configured
-  git commit -m "chore: add kanban automation workflows (reusable pattern)"
-  git push origin main
+```
+v3 configured (현재 UTC 시각)
+```
 
-  echo ""
-  echo "✅ 칸반 자동화 설정 완료 (main에 직접 커밋됨)"
-  echo "   · _kanban-move.yml       → 공통 이슈 이동 로직"
-  echo "   · kanban-auto-review.yml → PR 오픈 시 Review 이동"
-  echo "   · kanban-auto-done.yml   → PR 머지 시 Done 이동"
-  echo "   💡 PR 본문에 'Closes #이슈번호'를 포함하면 자동으로 이동합니다."
-  echo "   ⚠️  secrets.APP_ID / APP_PRIVATE_KEY 미설정 시 Actions 실행 시 오류 발생합니다."
-fi
+> `(현재 UTC 시각)` 대신 실제 시각을 넣는다. 예: `v3 configured 2026-04-16T12:00:00Z`
+
+**파일 4개 생성 후**, main에 커밋하고 push한다:
+
+```bash
+git add .github/workflows/_kanban-move.yml .github/workflows/kanban-auto-review.yml .github/workflows/kanban-auto-done.yml .github/.kanban-auto-done-configured
+git commit -m "chore: add kanban automation workflows (reusable pattern)"
+git push origin main
+```
+
+이전 브랜치로 복귀한다:
+
+```bash
+git checkout -
 ```
 
 ---

@@ -69,88 +69,99 @@ gh project list --owner OWNER --format json
 - `kanban-auto-review.yml` — PR 오픈 시 Review 이동
 - `kanban-auto-done.yml` — PR 머지 시 Done 이동
 
+#### APP_ID 시크릿 감지
+
+먼저 아래 명령을 실행해 APP_ID 시크릿 등록 여부를 확인한다:
+
 ```bash
-# ── 헬퍼: 브라우저 열기 (macOS / Linux / Windows Git Bash 대응) ──────────
-_open_url() {
-  local url="$1"
-  if command -v open &>/dev/null; then
-    open "$url"
-  elif command -v xdg-open &>/dev/null; then
-    xdg-open "$url"
-  elif command -v start &>/dev/null; then
-    start "$url"
-  else
-    echo "   👉 브라우저에서 직접 열기: $url"
-  fi
-}
+gh secret list --repo "$OWNER/$REPO" 2>/dev/null | grep -q "^APP_ID" && echo "EXISTS" || echo "MISSING"
+```
 
-# ── GitHub App 시크릿 자동 설정 (APP_ID 미등록 시에만 실행) ──────────────
-if ! gh secret list --repo "$OWNER/$REPO" 2>/dev/null | grep -q "^APP_ID"; then
-  echo ""
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📱 GitHub App 설정 (최초 1회 — 이후 자동 처리됨)"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
+결과가 **"EXISTS"**이면 GitHub App 설정을 건너뛴다.
+결과가 **"MISSING"**이면 아래 **GitHub App 설정 절차**를 수행한다.
 
-  # ── 1단계: App 생성 페이지 열기 ────────────────────────────────────────
-  echo "1단계: 브라우저에서 GitHub App을 생성합니다."
-  echo "       아래 설정으로 입력하고 'Create GitHub App'을 클릭하세요:"
-  echo ""
-  echo "       · App name      : 원하는 이름 (예: $REPO-kanban-bot)"
-  echo "       · Homepage URL  : https://github.com/$OWNER/$REPO"
-  echo "       · Webhook       : Active 체크 해제"
-  echo "       · Permissions   :"
-  echo "           Repository > Issues         : Read & Write"
-  echo "           Repository > Pull requests  : Read-only"
-  echo "           Account    > Projects       : Read & Write"
-  echo "       · Where can this be installed   : Only on this account"
-  echo ""
-  _open_url "https://github.com/settings/apps/new"
-  read -rp "   앱 생성 완료 후 Enter를 누르세요..."
+#### GitHub App 설정 절차 (APP_ID 없을 때)
 
-  # ── 2단계: App ID 입력 ──────────────────────────────────────────────────
-  echo ""
-  echo "2단계: 생성된 앱의 App ID를 입력합니다."
-  echo "       (앱 페이지 상단 'App ID: XXXXXXX' 에서 확인)"
-  read -rp "   App ID: " _APP_ID_INPUT
-  if [ -z "$_APP_ID_INPUT" ]; then
-    echo "❌ App ID가 입력되지 않았습니다. 중단합니다."
-    exit 1
-  fi
+> **중요**: 이 절차는 bash 스크립트로 한 번에 실행하지 않는다.
+> 각 단계를 Claude가 사용자와 **대화하며** 순서대로 직접 수행한다.
+> 사용자 입력이 필요한 곳에서 반드시 멈추고 답변을 기다린다.
 
-  # ── 3단계: Private Key 생성 & .pem 경로 입력 ────────────────────────────
-  echo ""
-  echo "3단계: Private Key를 생성하고 .pem 파일을 다운로드합니다."
-  echo "       앱 설정 페이지 → 'Private keys' 섹션 → 'Generate a private key'"
-  _open_url "https://github.com/settings/apps"
-  echo ""
-  read -rp "   다운로드한 .pem 파일의 전체 경로: " _PEM_PATH
-  _PEM_PATH="${_PEM_PATH/#\~/$HOME}"   # ~ 를 $HOME 으로 확장
+**1단계 — 앱 생성 안내**
 
-  if [ ! -f "$_PEM_PATH" ]; then
-    echo "❌ 파일을 찾을 수 없습니다: $_PEM_PATH"
-    exit 1
-  fi
+아래 명령으로 GitHub App 생성 페이지를 연다:
 
-  # ── 4단계: Repository Secrets 등록 ─────────────────────────────────────
-  echo ""
-  echo "4단계: Repository Secrets를 등록합니다..."
-  gh secret set APP_ID --body "$_APP_ID_INPUT" --repo "$OWNER/$REPO"
-  gh secret set APP_PRIVATE_KEY < "$_PEM_PATH" --repo "$OWNER/$REPO"
-  echo "   ✅ APP_ID, APP_PRIVATE_KEY 등록 완료"
+```bash
+open "https://github.com/settings/apps/new"
+```
 
-  # ── 5단계: 앱을 저장소에 Install ────────────────────────────────────────
-  echo ""
-  echo "5단계: 앱을 저장소에 설치합니다."
-  echo "       앱 설정 페이지 → 'Install App' 탭 → 저장소 선택"
-  _open_url "https://github.com/settings/apps"
-  read -rp "   앱 설치 완료 후 Enter를 누르세요..."
+> (Linux: `xdg-open`, Windows Git Bash: `start` 사용)
 
-  echo ""
-  echo "✅ GitHub App 설정 완료 (APP_ID, APP_PRIVATE_KEY 등록됨)"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo ""
-fi
+사용자에게 아래 설정으로 앱을 생성하도록 안내하고, 완료 여부를 확인한다:
+
+- **App name**: 원하는 이름 (예: `REPO-kanban-bot`)
+- **Homepage URL**: `https://github.com/OWNER/REPO`
+- **Webhook**: Active 체크 **해제**
+- **Permissions**:
+  - Repository > Issues: **Read & Write**
+  - Repository > Pull requests: **Read-only**
+  - Account > Projects: **Read & Write**
+- **Where can this be installed**: Only on this account
+
+→ 사용자에게 "앱 생성을 완료하셨나요?" 확인 후 다음 단계 진행
+
+**2단계 — App ID 수집**
+
+사용자에게 묻는다:
+
+> "앱 페이지 상단에 표시된 **App ID** 숫자를 알려주세요."
+
+사용자가 숫자를 입력하면 `_APP_ID_INPUT` 변수로 기억한다.
+
+**3단계 — Private Key 수집**
+
+아래 명령으로 앱 목록 페이지를 연다:
+
+```bash
+open "https://github.com/settings/apps"
+```
+
+사용자에게 안내한다:
+
+> "해당 앱 → **Private keys** 섹션 → **Generate a private key** 클릭 → .pem 파일이 다운로드됩니다.
+> 다운로드된 **.pem 파일의 전체 경로**를 알려주세요. (예: `/Users/yourname/Downloads/app-name.pem`)"
+
+경로를 받으면 파일 존재 여부를 확인한다:
+
+```bash
+ls -la "<입력받은 경로>"
+```
+
+파일이 없으면 사용자에게 재입력을 요청한다. 파일이 있으면 `_PEM_PATH` 변수로 기억한다.
+
+**4단계 — 시크릿 등록**
+
+수집한 값으로 시크릿을 등록한다:
+
+```bash
+gh secret set APP_ID --body "<_APP_ID_INPUT>" --repo "$OWNER/$REPO"
+gh secret set APP_PRIVATE_KEY < "<_PEM_PATH>" --repo "$OWNER/$REPO"
+```
+
+성공하면 사용자에게 "✅ APP_ID, APP_PRIVATE_KEY 등록 완료"를 알린다.
+
+**5단계 — App 설치**
+
+```bash
+open "https://github.com/settings/apps"
+```
+
+사용자에게 안내한다:
+
+> "해당 앱 → **Install App** 탭 → **Install** 버튼 → 대상 저장소($REPO) 선택"
+
+→ 사용자에게 "설치를 완료하셨나요?" 확인 후 워크플로우 파일 생성으로 진행
+
+---
 
 # ── 워크플로우 파일 생성 ─────────────────────────────────────────────────
 # 이 코드는 Step 3(브랜치 생성) 이전, main 브랜치 위에서 실행한다.
@@ -236,14 +247,14 @@ jobs:
             // 3. 프로젝트 번호 결정
             let projectNumber = parseInt(process.env.KANBAN_PROJECT_NUMBER || '0', 10);
             if (!projectNumber) {
-              const { data: { repositoryOwner } } = await github.graphql(`
+              const projectData = await github.graphql(`
                 query($owner: String!) {
                   repositoryOwner(login: $owner) {
                     ... on Organization { projectsV2(first:1, orderBy:{field:UPDATED_AT, direction:DESC}) { nodes { number } } }
                     ... on User        { projectsV2(first:1, orderBy:{field:UPDATED_AT, direction:DESC}) { nodes { number } } }
                   }
                 }`, { owner });
-              projectNumber = repositoryOwner.projectsV2.nodes[0]?.number;
+              projectNumber = projectData.repositoryOwner.projectsV2.nodes[0]?.number;
             }
             if (!projectNumber) { core.setFailed('프로젝트 번호를 찾을 수 없습니다.'); return; }
             core.info(`PROJECT_NUMBER=${projectNumber}`);

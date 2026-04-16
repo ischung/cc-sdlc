@@ -73,7 +73,7 @@ gh secret set KANBAN_TOKEN --repo OWNER/REPO
 ## 2. 설치
 
 ```bash
-npx github:ischung/cc-sdlc-v0
+npx github:ischung/cc-sdlc
 ```
 
 7개 스킬, 12개 커맨드가 `~/.claude/`에 설치됩니다. 설치 후 **Claude Code를 재시작**하세요.
@@ -108,7 +108,7 @@ npx github:ischung/cc-sdlc-v0
 ## 3. 설치 확인
 
 ```bash
-npx github:ischung/cc-sdlc-v0 list
+npx github:ischung/cc-sdlc list
 ```
 
 ---
@@ -519,10 +519,10 @@ flowchart LR
 
 ```bash
 # 전역 제거
-npx github:ischung/cc-sdlc-v0 uninstall
+npx github:ischung/cc-sdlc uninstall
 
 # 프로젝트 스코프 제거
-npx github:ischung/cc-sdlc-v0 uninstall --project
+npx github:ischung/cc-sdlc uninstall --project
 ```
 
 제거 후 Claude Code를 재시작하면 스킬이 비활성화됩니다.

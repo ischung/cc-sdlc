@@ -69,101 +69,11 @@ gh project list --owner OWNER --format json
 - `kanban-auto-review.yml` — PR 오픈 시 Review 이동
 - `kanban-auto-done.yml` — PR 머지 시 Done 이동
 
-#### APP_ID 시크릿 감지
+> **실행 순서 중요**: 워크플로우 파일을 **먼저** 생성하고, GitHub App 설정은 **나중에** 한다.
+> 파일 생성과 시크릿 등록은 독립적이다. 파일이 없으면 Actions 트리거 자체가 안 되지만,
+> 시크릿이 없어도 파일은 미리 생성해 둘 수 있다.
 
-먼저 아래 명령을 실행해 APP_ID 시크릿 등록 여부를 확인한다:
-
-```bash
-gh secret list --repo "$OWNER/$REPO" 2>/dev/null | grep -q "^APP_ID" && echo "EXISTS" || echo "MISSING"
-```
-
-결과가 **"EXISTS"**이면 GitHub App 설정을 건너뛴다.
-결과가 **"MISSING"**이면 아래 **GitHub App 설정 절차**를 수행한다.
-
-#### GitHub App 설정 절차 (APP_ID 없을 때)
-
-> **중요**: 이 절차는 bash 스크립트로 한 번에 실행하지 않는다.
-> 각 단계를 Claude가 사용자와 **대화하며** 순서대로 직접 수행한다.
-> 사용자 입력이 필요한 곳에서 반드시 멈추고 답변을 기다린다.
-
-**1단계 — 앱 생성 안내**
-
-아래 명령으로 GitHub App 생성 페이지를 연다:
-
-```bash
-open "https://github.com/settings/apps/new"
-```
-
-> (Linux: `xdg-open`, Windows Git Bash: `start` 사용)
-
-사용자에게 아래 설정으로 앱을 생성하도록 안내하고, 완료 여부를 확인한다:
-
-- **App name**: 원하는 이름 (예: `REPO-kanban-bot`)
-- **Homepage URL**: `https://github.com/OWNER/REPO`
-- **Webhook**: Active 체크 **해제**
-- **Permissions**:
-  - Repository > Issues: **Read & Write**
-  - Repository > Pull requests: **Read-only**
-  - Account > Projects: **Read & Write**
-- **Where can this be installed**: Only on this account
-
-→ 사용자에게 "앱 생성을 완료하셨나요?" 확인 후 다음 단계 진행
-
-**2단계 — App ID 수집**
-
-사용자에게 묻는다:
-
-> "앱 페이지 상단에 표시된 **App ID** 숫자를 알려주세요."
-
-사용자가 숫자를 입력하면 `_APP_ID_INPUT` 변수로 기억한다.
-
-**3단계 — Private Key 수집**
-
-아래 명령으로 앱 목록 페이지를 연다:
-
-```bash
-open "https://github.com/settings/apps"
-```
-
-사용자에게 안내한다:
-
-> "해당 앱 → **Private keys** 섹션 → **Generate a private key** 클릭 → .pem 파일이 다운로드됩니다.
-> 다운로드된 **.pem 파일의 전체 경로**를 알려주세요. (예: `/Users/yourname/Downloads/app-name.pem`)"
-
-경로를 받으면 파일 존재 여부를 확인한다:
-
-```bash
-ls -la "<입력받은 경로>"
-```
-
-파일이 없으면 사용자에게 재입력을 요청한다. 파일이 있으면 `_PEM_PATH` 변수로 기억한다.
-
-**4단계 — 시크릿 등록**
-
-수집한 값으로 시크릿을 등록한다:
-
-```bash
-gh secret set APP_ID --body "<_APP_ID_INPUT>" --repo "$OWNER/$REPO"
-gh secret set APP_PRIVATE_KEY < "<_PEM_PATH>" --repo "$OWNER/$REPO"
-```
-
-성공하면 사용자에게 "✅ APP_ID, APP_PRIVATE_KEY 등록 완료"를 알린다.
-
-**5단계 — App 설치**
-
-```bash
-open "https://github.com/settings/apps"
-```
-
-사용자에게 안내한다:
-
-> "해당 앱 → **Install App** 탭 → **Install** 버튼 → 대상 저장소($REPO) 선택"
-
-→ 사용자에게 "설치를 완료하셨나요?" 확인 후 워크플로우 파일 생성으로 진행
-
----
-
-#### 워크플로우 파일 생성/갱신
+#### Part A — 워크플로우 파일 생성/갱신 (무조건 먼저 실행)
 
 아래 두 조건 중 하나라도 해당하면 워크플로우를 재생성한다:
 1. 마커 파일에 `v3` 버전 없음 (최초 설치 / 이전 버전)
@@ -372,6 +282,97 @@ GHACTIONS
   echo "   ⚠️  secrets.APP_ID / APP_PRIVATE_KEY 미설정 시 Actions 실행 시 오류 발생합니다."
 fi
 ```
+
+---
+
+#### Part B — GitHub App 시크릿 등록 (APP_ID 없을 때만)
+
+워크플로우 파일 생성 후, 아래 명령을 실행해 APP_ID 시크릿 등록 여부를 확인한다:
+
+```bash
+gh secret list --repo "$OWNER/$REPO" 2>/dev/null | grep -q "^APP_ID" && echo "EXISTS" || echo "MISSING"
+```
+
+결과가 **"EXISTS"**이면 건너뛰고 Step 1로 진행한다.
+결과가 **"MISSING"**이면 아래 절차를 사용자와 **대화하며** 수행한다.
+
+> **중요**: 이 절차는 bash 스크립트로 한 번에 실행하지 않는다.
+> 각 단계를 Claude가 사용자에게 안내하고, 사용자 입력을 받아서 처리한다.
+
+**1단계 — 앱 생성 안내**
+
+아래 명령으로 GitHub App 생성 페이지를 연다:
+
+```bash
+open "https://github.com/settings/apps/new"
+```
+
+> (Linux: `xdg-open`, Windows Git Bash: `start` 사용)
+
+사용자에게 아래 설정으로 앱을 생성하도록 안내하고, 완료 여부를 확인한다:
+
+- **App name**: 원하는 이름 (예: `REPO-kanban-bot`)
+- **Homepage URL**: `https://github.com/OWNER/REPO`
+- **Webhook**: Active 체크 **해제**
+- **Permissions**:
+  - Repository > Issues: **Read & Write**
+  - Repository > Pull requests: **Read-only**
+  - Account > Projects: **Read & Write**
+- **Where can this be installed**: Only on this account
+
+→ 사용자에게 "앱 생성을 완료하셨나요?" 확인 후 다음 단계 진행
+
+**2단계 — App ID 수집**
+
+사용자에게 묻는다:
+
+> "앱 페이지 상단에 표시된 **App ID** 숫자를 알려주세요."
+
+사용자가 숫자를 입력하면 `_APP_ID_INPUT` 변수로 기억한다.
+
+**3단계 — Private Key 수집**
+
+아래 명령으로 앱 목록 페이지를 연다:
+
+```bash
+open "https://github.com/settings/apps"
+```
+
+사용자에게 안내한다:
+
+> "해당 앱 → **Private keys** 섹션 → **Generate a private key** 클릭 → .pem 파일이 다운로드됩니다.
+> 다운로드된 **.pem 파일의 전체 경로**를 알려주세요. (예: `/Users/yourname/Downloads/app-name.pem`)"
+
+경로를 받으면 파일 존재 여부를 확인한다:
+
+```bash
+ls -la "<입력받은 경로>"
+```
+
+파일이 없으면 사용자에게 재입력을 요청한다. 파일이 있으면 `_PEM_PATH` 변수로 기억한다.
+
+**4단계 — 시크릿 등록**
+
+수집한 값으로 시크릿을 등록한다:
+
+```bash
+gh secret set APP_ID --body "<_APP_ID_INPUT>" --repo "$OWNER/$REPO"
+gh secret set APP_PRIVATE_KEY < "<_PEM_PATH>" --repo "$OWNER/$REPO"
+```
+
+성공하면 사용자에게 "APP_ID, APP_PRIVATE_KEY 등록 완료"를 알린다.
+
+**5단계 — App 설치**
+
+```bash
+open "https://github.com/settings/apps"
+```
+
+사용자에게 안내한다:
+
+> "해당 앱 → **Install App** 탭 → **Install** 버튼 → 대상 저장소($REPO) 선택"
+
+→ 사용자에게 "설치를 완료하셨나요?" 확인 후 Step 1로 진행
 
 ---
 
